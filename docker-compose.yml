@@ -1,0 +1,123 @@
+services:
+  kafka:
+    image: ${KAFKA_IMAGE}
+    container_name: ${KAFKA_CONTAINER}
+    hostname: kafka
+
+    ports:
+      - "${KAFKA_HOST_PORT}:9092"
+
+    environment:
+      # KRaft single-node/broker configuration
+      KAFKA_NODE_ID: ${KAFKA_NODE_ID}
+      KAFKA_PROCESS_ROLES: broker,controller
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+
+      # KRaft controller configuration
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: ${KAFKA_NODE_ID}@kafka:29093
+
+      # Docker-internal and host listeners
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:${KAFKA_HOST_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+
+      # Single-node development settings
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      # Topics must be created explicitly
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+    networks:
+      - traffic-network
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list"
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+    restart: unless-stopped
+
+  jobmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    image: traffic-flink-pyflink:1.20.3
+    container_name: ${FLINK_JOBMANAGER_CONTAINER}
+    hostname: jobmanager
+    command: jobmanager
+
+    ports:
+      - "${FLINK_DASHBOARD_PORT}:8081"
+
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        jobmanager.bind-host: 0.0.0.0
+        rest.address: 0.0.0.0
+        rest.bind-address: 0.0.0.0
+        parallelism.default: ${FLINK_PARALLELISM}
+
+    volumes:
+      - ./lib/flink-sql-connector-kafka-3.3.0-1.20.jar:/opt/flink/lib/flink-sql-connector-kafka-3.3.0-1.20.jar
+      - ./scr/flink:/opt/flink/jobs
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    networks:
+      - traffic-network
+
+    restart: unless-stopped
+
+  taskmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    image: traffic-flink-pyflink:1.20.3
+    container_name: ${FLINK_TASKMANAGER_CONTAINER}
+    hostname: taskmanager
+    command: taskmanager
+
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.bind-host: 0.0.0.0
+        taskmanager.host: taskmanager
+        taskmanager.numberOfTaskSlots: ${FLINK_TASK_SLOTS}
+        parallelism.default: ${FLINK_PARALLELISM}
+
+    volumes:
+      - ./lib/flink-sql-connector-kafka-3.3.0-1.20.jar:/opt/flink/lib/flink-sql-connector-kafka-3.3.0-1.20.jar
+
+    depends_on:
+      jobmanager:
+        condition: service_started
+
+    networks:
+      - traffic-network
+
+    restart: unless-stopped
+
+networks:
+  traffic-network:
+    name: ${DOCKER_NETWORK_NAME}
+    driver: bridge
+
+volumes:
+  kafka-data:
+    name: ${KAFKA_VOLUME_NAME}
