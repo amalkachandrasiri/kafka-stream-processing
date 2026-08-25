@@ -438,8 +438,5 @@ docker logs traffic-flink-taskmanager --since 15m 2>&1 | Select-String -SimpleMa
 ```
 
 If `docker logs -f` is used, press `Ctrl + C` to stop viewing the log. This does not stop the Flink service.
-
-## Learning Outcome
-
-This project provides practical experience in designing a real-time stream-processing pipeline using Kafka and Apache Flink. It demonstrates how Kafka partitions and message keys support ordered and parallel streaming, while PyFlink provides event-time processing, bounded out-of-order handling, stateful window aggregation and checkpoint-based recovery. The Docker-based deployment also provides a reproducible environment for developing and monitoring a distributed streaming application.
+application.
 
